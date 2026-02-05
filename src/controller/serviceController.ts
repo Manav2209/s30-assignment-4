@@ -1,7 +1,7 @@
 import { Router, type Response } from "express";
 import { authenticate } from "../middleware/auth";
 import type { AuthRequest } from "../utils/types";
-import { success } from "zod";
+import { check, success } from "zod";
 import { createservice, setAvailabilty } from "../utils/validation";
 import { prisma } from "../../db";
 import type { ServiceType } from "../../generated/prisma/enums";
@@ -111,10 +111,20 @@ serviceRouter.post("/:serviceId/availability" ,authenticate , async (req: AuthRe
         })
     }
 
+
+
+    if(checkServiceExists.providerId == req.user?.id){
+        return res.status(403).json({
+            success: false ,
+            data: null,
+            error:"SERVICE_DOES_NOT_BELONG"
+        })
+    }
+
     const availability = await prisma.availabilty.create({
         data:{
             dayOfWeek : day!,
-            startTime: data.starttime,
+            startTime: data.startTime,
             endTime :data.endTime,
             serviceId: req.params.serviceId! as string
         }
@@ -125,11 +135,6 @@ serviceRouter.post("/:serviceId/availability" ,authenticate , async (req: AuthRe
         data: availability,
         error: null
     })
-
-
-
-
-
 
 })
 
@@ -176,33 +181,33 @@ serviceRouter.get("/" , authenticate , async (req: AuthRequest , res) => {
 }
 })
 
-serviceRouter.get("/:serviceId/slots" , authenticate ,async (req: AuthRequest ,res) => {
-    try {
-        const date = req.params.date;
+// serviceRouter.get("/:serviceId/slots" , authenticate ,async (req: AuthRequest ,res) => {
+//     try {
+//         const date = req.params.date;
 
-        const serviceId = req.params.serviceId;
+//         const serviceId = req.params.serviceId;
 
-        if(!serviceId || !date){
-            return res.status(400).json({
-                success: false , 
-                data: null , 
-                error: "INVALID_DATE"
-            })
-        }
+//         if(!serviceId || !date){
+//             return res.status(400).json({
+//                 success: false , 
+//                 data: null , 
+//                 error: "INVALID_DATE"
+//             })
+//         }
 
-        const services = await prisma.service.findMany({
-            where:{
-                id: serviceId!as string,
-                appointment:{
+//         const services = await prisma.service.findMany({
+//             where:{
+//                 id: serviceId!as string,
+//                 appointment:{
             
-               }
-            }
-        })
+//                }
+//             }
+//         })
 
 
 
 
-    }catch(e){
+//     }catch(e){
 
-    }
-})  
+//     }
+// })  
