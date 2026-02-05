@@ -1,6 +1,7 @@
 import express from "express";
 import authRoutes from "./routes/authRoutes";
-import { serviceRouter } from "./controller/serviceController";
+import { serviceRouter } from "./routes/serviceRoutes";
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;

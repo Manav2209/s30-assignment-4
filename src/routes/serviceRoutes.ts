@@ -181,33 +181,34 @@ serviceRouter.get("/" , authenticate , async (req: AuthRequest , res) => {
 }
 })
 
-// serviceRouter.get("/:serviceId/slots" , authenticate ,async (req: AuthRequest ,res) => {
-//     try {
-//         const date = req.params.date;
+serviceRouter.get("/:serviceId/slots" , authenticate ,async (req: AuthRequest ,res) => {
+    try {
+        const date = req.params.date;
+        
 
-//         const serviceId = req.params.serviceId;
+        const serviceId = req.params.serviceId;
 
-//         if(!serviceId || !date){
-//             return res.status(400).json({
-//                 success: false , 
-//                 data: null , 
-//                 error: "INVALID_DATE"
-//             })
-//         }
+        if(!serviceId || !date){
+            return res.status(400).json({
+                success: false , 
+                data: null , 
+                error: "INVALID_DATE"
+            })
+        }
 
-//         const services = await prisma.service.findMany({
-//             where:{
-//                 id: serviceId!as string,
-//                 appointment:{
+        const services = await prisma.service.findMany({
+            where:{
+                id: serviceId!as string,
+                appointment:{
             
-//                }
-//             }
-//         })
+               }
+            }
+        })
 
 
 
 
-//     }catch(e){
+    }catch(e){
 
-//     }
-// })  
+    }
+})  
