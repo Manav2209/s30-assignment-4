@@ -12,11 +12,65 @@ enum Role {
   SERVICE_PROVIDER
 }
 
+enum ServiceType{
+MEDICAL
+HOUSE_HELP
+BEAUTY
+FITNESS
+EDUCATION
+OTHER
+}
+
+enum AppointmentStatus{
+  BOOKED 
+  CANCELLED
+}
+
 model User {
   id           String        @id @default(uuid())
   name         String
   email        String        @unique
   passwordHash String
   role         Role
+
+  service      Service[]
+  Appointment   Appointment[]
   createdAt    DateTime      @default(now())
+}
+
+
+model Service{
+  id              String @id @default (uuid())
+  name            String
+  type            ServiceType
+  providerId      String
+  provider         User          @relation( fields: [providerId], references: [id])
+  durationMinutes  Int
+  avilability     Availabilty[]
+  appointment   Appointment[]
+  createdAt       DateTime @default(now())
+
+}
+
+model Availabilty{
+  id    String @id @default(uuid())
+  serviceId   String 
+  avilablityService   Service  @relation( fields:[serviceId] , references: [id])
+  dayOfWeek String
+  startTime  DateTime 
+  endTime     DateTime
+}
+
+model Appointment{
+  id    String @id@default(uuid())
+  userId  String
+  serviceId String
+  user         User          @relation( fields: [userId], references: [id])
+  service       Service       @relation( fields: [serviceId], references: [id])
+  date    DateTime
+  startTime DateTime// HH:MM
+  endTime  DateTime //HH: MM
+  slotId  String 
+  status  AppointmentStatus
+  createdAt DateTime @default(now())
 }
