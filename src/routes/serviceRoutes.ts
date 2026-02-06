@@ -1,11 +1,11 @@
 import { Router, type Response } from "express";
 import { authenticate } from "../middleware/auth";
 import type { AuthRequest } from "../utils/types";
-import { check, success } from "zod";
-import { createservice, setAvailabilty } from "../utils/validation";
+
+import { createService, setAvailabilty } from "../utils/validation";
 import { prisma } from "../../db";
-import type { ServiceType } from "../../generated/prisma/enums";
-import { format } from 'date-fns';
+import { ServiceType } from "../../generated/prisma/enums";
+import { getMinutes, getTime } from "../utils/slotHelpers";
 
 
 
@@ -21,7 +21,7 @@ serviceRouter.post("/" , authenticate ,async  (req: AuthRequest ,res: Response) 
         })
     }
 
-    const {success , data }= createservice.safeParse(req.body);
+    const {success , data }= createService.safeParse(req.body);
     if(!success){
         return res.status(400).json({
             success: false,
@@ -30,7 +30,7 @@ serviceRouter.post("/" , authenticate ,async  (req: AuthRequest ,res: Response) 
         })
     }
 
-    if(data.durationMinutes %30 == 0) {
+    if(data.durationMinutes %30 !== 0) {
         return res.status(400).json({
             success: false,
             error: "INVALID_SCHEMA",
@@ -113,12 +113,35 @@ serviceRouter.post("/:serviceId/availability" ,authenticate , async (req: AuthRe
 
 
 
-    if(checkServiceExists.providerId == req.user?.id){
+    if(checkServiceExists.providerId !== req.user?.id){
         return res.status(403).json({
             success: false ,
             data: null,
             error:"SERVICE_DOES_NOT_BELONG"
         })
+    }
+
+    const overlapping = await prisma.availabilty.findFirst({
+        where:{
+            serviceId: req.params.serviceId! as string,
+            dayOfWeek: day,
+            AND:[
+                {
+                    startTime: {lt : data.endTime}
+                },{
+                    endTime: {gt : data.startTime}
+                }
+            ]
+
+        }
+    })
+
+    if(overlapping){
+        return res.status(409).json({
+            success: false,
+            error: "OVERLAPPING_AVAILABILITY",
+            data: null,
+        });
     }
 
     const availability = await prisma.availabilty.create({
@@ -139,76 +162,205 @@ serviceRouter.post("/:serviceId/availability" ,authenticate , async (req: AuthRe
 })
 
 serviceRouter.get("/" , authenticate , async (req: AuthRequest , res) => {
-    try{
-    const Type = req.params.type as ServiceType;
-    if(!Type){
-        return res.status(400).json({
+    try {
+
+        const type = req.query.type as ServiceType | undefined;
+    
+        
+        if (type && !Object.values(ServiceType).includes(type)) {
+            return res.status(400).json({
             success: false,
             data: null,
-            error:"INVALID_SERVICE_TYPE"
-        })
-    }
-
-    const service = await prisma.service.findMany({
-        where:{
-            type: Type
-        },
-        select:{
-            id: true , 
-            name: true ,
-            type: true,
-            durationMinutes: true , 
-            provider:{
-                select:{
-                    name: true
-                }
-            }
+            error: "INVALID_SERVICE_TYPE",
+        });
         }
-    })
-
-    return res.status(200).json({
-        success: true , 
-        data: service,
-        error:null
-
-    })
-} catch(e){
-    return res.status(500).json({
-        success: false,
-        data: null , 
-        error: "INTERNAL_SERVICE_ERROR"
-    })
-}
+    
+        const services = await prisma.service.findMany({
+        where: type
+            ? {
+                type: type,
+            }
+            : undefined,
+        select: {
+            id: true,
+            name: true,
+            type: true,
+            durationMinutes: true,
+            provider: {
+                select: {
+                    name: true,
+                },
+            },
+        },
+        });
+    
+    
+        const response = services.map((s) => ({
+            id: s.id,
+            name: s.name,
+            type: s.type,
+            durationMinutes: s.durationMinutes,
+            providerName: s.provider.name,
+        }));
+    
+        return res.status(200).json(response);
+    
+    } catch (e) {
+        return res.status(500).json({
+            success: false,
+            data: null,
+            error: "INTERNAL_SERVER_ERROR",
+        });
+    }
 })
 
 serviceRouter.get("/:serviceId/slots" , authenticate ,async (req: AuthRequest ,res) => {
     try {
-        const date = req.params.date;
-        
+        const { serviceId } = req.params;
+        const { date } = req.query as { date?: string };
 
-        const serviceId = req.params.serviceId;
-
-        if(!serviceId || !date){
+        if (!date) {
             return res.status(400).json({
-                success: false , 
-                data: null , 
-                error: "INVALID_DATE"
-            })
+                success: false,
+                data: null,
+                error: "INVALID_DATE",
+            });
         }
 
-        const services = await prisma.service.findMany({
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+
+        if (!dateRegex.test(date)) {
+            return res.status(400).json({
+                success: false,
+                data: null,
+                error: "INVALID_DATE",
+            });
+        }
+    
+        const service = await prisma.service.findUnique({
             where:{
                 id: serviceId!as string,
-                appointment:{
             
-               }
+            },select:{
+                id: true,
+                durationMinutes: true
             }
         })
+        if (!service) {
+            return res.status(404).json({
+                success: false,
+                data: null,
+                error: "SERVICE_NOT_FOUND",
+            });
+        }
+    
+        // deriving day from date
 
+        const jsDate = new Date(date + "T00:00:00");
+        if (isNaN(jsDate.getTime())) {
+            return res.status(400).json({
+                success: false,
+                data: null,
+                error: "INVALID_DATE",
+            });
+        }
+
+        
+        const days = [
+            "sunday",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+        ] as const;
+
+        const day = days[jsDate.getDay()];
+
+        // checking the avilabilty
+        const availability = await prisma.availabilty.findMany({
+            where: {
+                serviceId: serviceId as string ,
+                dayOfWeek: day,
+            },
+        });
+    
+            if (availability.length === 0) {
+                return res.status(200).json({
+                serviceId,
+                date,
+                slots: [],
+                });
+            }
+
+        // checking the appointment 
+
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                serviceId :serviceId as string,
+                date,
+                },
+                select: {
+                startTime: true,
+                endTime: true,
+                },
+        });
+
+        const slotLength = service.durationMinutes;
+
+        const slots: {
+            slotId: string;
+            startTime: string;
+            endTime: string;
+        }[] = [];
+        
+        for ( const a of availability){
+            let cursor = getMinutes(a.startTime);
+            const end = getMinutes(a.endTime)
+
+
+            while( cursor + slotLength <= end) {
+                const slotStart = cursor;
+                const slotEnd = cursor + slotLength;
+
+                const hasOverlap = appointments.some((appt) => {
+                    const apptStart = getMinutes(appt.startTime);
+                    const apptEnd = getMinutes(appt.endTime);
+        
+                    return apptStart < slotEnd && apptEnd > slotStart;
+                    });
+                    
+                    if (!hasOverlap) {
+                        const startTime = getTime(slotStart);
+                        const endTime = getTime(slotEnd);
+            
+                        slots.push({
+                        slotId: `${serviceId}_${date}_${startTime}`,
+                        startTime,
+                        endTime,
+                        });
+                    }
+            
+                    cursor += slotLength;
+            }
+        }
+
+        return res.status(200).json({
+            serviceId,
+            date,
+            slots,
+        });
 
 
 
     }catch(e){
+
+        return res.status(500).json({
+            success: false,
+            data: null,
+            error: "INTERNAL_SERVER_ERROR",
+        });
 
     }
 })  
